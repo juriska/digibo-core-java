@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  digibo-core:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-mock}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING:-}
+      - JWT_SECRET=${JWT_SECRET:-your-256-bit-secret-key-here-for-development-only}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Oracle database for local development
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=password
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    profiles:
+      - oracle-local
+
+volumes:
+  oracle_data:

@@ -1,0 +1,112 @@
+spring:
+  application:
+    name: digibo-core
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  port: ${PORT:3000}
+  servlet:
+    context-path: /
+
+# Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# CORS configuration
+cors:
+  allowed-origins:
+    - https://preview--digi-backstage-haven.lovable.app
+    - http://localhost:3000
+    - http://localhost:4200
+    - http://localhost:5173
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowed-headers:
+    - Content-Type
+    - Authorization
+  allow-credentials: true
+
+# JWT configuration
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-key-here-for-development-only-change-in-production}
+  expiration: ${JWT_EXPIRATION:86400000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
+
+---
+# Development profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:oracle:thin:@${DB_CONNECTION_STRING:localhost:1521/XEPDB1}
+    username: ${DB_USER:dbuser}
+    password: ${DB_PASSWORD:password}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      minimum-idle: 3
+      maximum-pool-size: 5
+      idle-timeout: 60000
+      connection-timeout: 60000
+      max-lifetime: 1800000
+      pool-name: DigiboHikariPool
+
+logging:
+  level:
+    com.digibo.core: DEBUG
+    org.springframework.jdbc: DEBUG
+
+---
+# Mock profile (no database)
+spring:
+  config:
+    activate:
+      on-profile: mock
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.health.DataSourceHealthContributorAutoConfiguration
+
+app:
+  mock-enabled: true
+
+logging:
+  level:
+    com.digibo.core: DEBUG
+
+---
+# Production profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: jdbc:oracle:thin:@${DB_CONNECTION_STRING}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 60000
+      connection-timeout: 60000
+      max-lifetime: 1800000
+      pool-name: DigiboHikariPool
+
+logging:
+  level:
+    com.digibo.core: INFO
+    org.springframework.jdbc: WARN

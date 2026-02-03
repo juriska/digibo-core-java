@@ -1,0 +1,9 @@
+spring:
+  profiles:
+    active: mock
+
+# Test-specific configuration
+logging:
+  level:
+    com.digibo.core: DEBUG
+    org.springframework.security: DEBUG
