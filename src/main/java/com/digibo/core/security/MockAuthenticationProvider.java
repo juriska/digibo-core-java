@@ -93,6 +93,37 @@ public class MockAuthenticationProvider implements AuthenticationProvider {
         return UsernamePasswordAuthenticationToken.class.isAssignableFrom(authentication);
     }
 
+    /**
+     * Check if a username belongs to a mock user.
+     */
+    public static boolean isMockUser(String username) {
+        return username != null && MOCK_USERS.containsKey(username.toLowerCase());
+    }
+
+    /**
+     * Get mock user's roles. Returns empty list if not a mock user.
+     */
+    public static List<String> getMockUserRoles(String username) {
+        MockUser user = username != null ? MOCK_USERS.get(username.toLowerCase()) : null;
+        return user != null ? user.roles : List.of();
+    }
+
+    /**
+     * Get mock user's permissions. Returns empty set if not a mock user.
+     */
+    public static Set<String> getMockUserPermissions(String username) {
+        MockUser user = username != null ? MOCK_USERS.get(username.toLowerCase()) : null;
+        return user != null ? user.permissions : Set.of();
+    }
+
+    /**
+     * Get mock user's userId. Returns null if not a mock user.
+     */
+    public static String getMockUserId(String username) {
+        MockUser user = username != null ? MOCK_USERS.get(username.toLowerCase()) : null;
+        return user != null ? user.userId : null;
+    }
+
     /** Internal record for mock user data */
     private record MockUser(
             String userId,

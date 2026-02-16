@@ -4,6 +4,8 @@ import com.digibo.core.dto.request.LoginRequest;
 import com.digibo.core.dto.response.AuthResponse;
 import com.digibo.core.exception.UnauthorizedException;
 import com.digibo.core.security.JwtTokenProvider;
+import com.digibo.core.security.MockAuthenticationProvider;
+import com.digibo.core.security.RsaKeyProvider;
 import com.digibo.core.security.UserPrincipal;
 import com.digibo.core.service.AuthPermissionService;
 import jakarta.servlet.http.Cookie;
@@ -38,6 +40,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
     private final AuthPermissionService authPermissionService;
+    private final RsaKeyProvider rsaKeyProvider;
 
     @Value("${jwt.expiration:86400000}")
     private long jwtExpiration;
@@ -53,27 +56,44 @@ public class AuthController {
 
     public AuthController(AuthenticationManager authenticationManager,
                           JwtTokenProvider tokenProvider,
-                          AuthPermissionService authPermissionService) {
+                          AuthPermissionService authPermissionService,
+                          RsaKeyProvider rsaKeyProvider) {
         this.authenticationManager = authenticationManager;
         this.tokenProvider = tokenProvider;
         this.authPermissionService = authPermissionService;
+        this.rsaKeyProvider = rsaKeyProvider;
+    }
+
+    @GetMapping("/public-key")
+    public ResponseEntity<Map<String, String>> getPublicKey() {
+        return ResponseEntity.ok(Map.of("publicKey", rsaKeyProvider.getPublicKeyBase64()));
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
                                                HttpServletResponse response) {
+        String password;
+        try {
+            password = rsaKeyProvider.decrypt(request.getPassword());
+        } catch (IllegalArgumentException e) {
+            throw new UnauthorizedException("Invalid username or password");
+        }
+
         try {
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             request.getUsername(),
-                            request.getPassword()
+                            password
                     )
             );
 
             UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
 
-            // Fetch user permissions from Oracle
-            Set<String> permissions = authPermissionService.getUserPermissions(userPrincipal.getUsername());
+            // Use permissions from authentication provider if already populated (mock users),
+            // otherwise fetch from Oracle (real users)
+            Set<String> permissions = userPrincipal.getPermissions().isEmpty()
+                    ? authPermissionService.getUserPermissions(userPrincipal.getUsername())
+                    : userPrincipal.getPermissions();
             logger.info("User {} logged in with {} permissions", userPrincipal.getUsername(), permissions.size());
 
             // Get roles from authentication
@@ -94,10 +114,7 @@ public class AuthController {
             addTokenCookie(response, ACCESS_TOKEN_COOKIE, accessToken, (int) (jwtExpiration / 1000));
             addTokenCookie(response, REFRESH_TOKEN_COOKIE, refreshToken, (int) (refreshExpiration / 1000));
 
-            // Return user info (tokens are in cookies, not in response body)
             return ResponseEntity.ok(AuthResponse.of(
-                    null, // Don't expose token in response
-                    null, // Don't expose refresh token in response
                     userPrincipal.getUserId(),
                     userPrincipal.getUsername(),
                     roles,
@@ -118,13 +135,23 @@ public class AuthController {
 
         String username = tokenProvider.getUsernameFromToken(refreshToken);
 
-        // Refresh permissions from Oracle (they might have changed)
-        Set<String> permissions = authPermissionService.getUserPermissions(username);
-        logger.debug("Refreshed token for user {} with {} permissions", username, permissions.size());
+        // For mock users, use predefined data; for real users, fetch from Oracle
+        Set<String> permissions;
+        List<String> roles;
+        String userId;
 
-        // In production, look up user details from database
-        List<String> roles = List.of("USER");
-        String userId = "user-id";
+        if (MockAuthenticationProvider.isMockUser(username)) {
+            permissions = MockAuthenticationProvider.getMockUserPermissions(username);
+            roles = MockAuthenticationProvider.getMockUserRoles(username);
+            userId = MockAuthenticationProvider.getMockUserId(username);
+            logger.debug("Refreshed token for mock user {} with {} permissions", username, permissions.size());
+        } else {
+            permissions = authPermissionService.getUserPermissions(username);
+            // TODO: look up real user details from database
+            roles = List.of("USER");
+            userId = "user-id";
+            logger.debug("Refreshed token for user {} with {} permissions", username, permissions.size());
+        }
 
         String newAccessToken = tokenProvider.generateToken(username, userId, roles, permissions);
         String newRefreshToken = tokenProvider.generateRefreshToken(username);
@@ -134,8 +161,6 @@ public class AuthController {
         addTokenCookie(response, REFRESH_TOKEN_COOKIE, newRefreshToken, (int) (refreshExpiration / 1000));
 
         return ResponseEntity.ok(AuthResponse.of(
-                null,
-                null,
                 userId,
                 username,
                 roles,
