@@ -8,6 +8,7 @@ import com.digibo.core.security.MockAuthenticationProvider;
 import com.digibo.core.security.RsaKeyProvider;
 import com.digibo.core.security.UserPrincipal;
 import com.digibo.core.service.AuthPermissionService;
+import com.digibo.core.service.OfficerSessionService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -41,6 +42,7 @@ public class AuthController {
     private final JwtTokenProvider tokenProvider;
     private final AuthPermissionService authPermissionService;
     private final RsaKeyProvider rsaKeyProvider;
+    private final OfficerSessionService officerSessionService;
 
     @Value("${jwt.expiration:86400000}")
     private long jwtExpiration;
@@ -57,11 +59,13 @@ public class AuthController {
     public AuthController(AuthenticationManager authenticationManager,
                           JwtTokenProvider tokenProvider,
                           AuthPermissionService authPermissionService,
-                          RsaKeyProvider rsaKeyProvider) {
+                          RsaKeyProvider rsaKeyProvider,
+                          OfficerSessionService officerSessionService) {
         this.authenticationManager = authenticationManager;
         this.tokenProvider = tokenProvider;
         this.authPermissionService = authPermissionService;
         this.rsaKeyProvider = rsaKeyProvider;
+        this.officerSessionService = officerSessionService;
     }
 
     @GetMapping("/public-key")
@@ -71,6 +75,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
+                                               HttpServletRequest httpRequest,
                                                HttpServletResponse response) {
         String password;
         try {
@@ -101,12 +106,24 @@ public class AuthController {
                     .map(GrantedAuthority::getAuthority)
                     .collect(Collectors.toList());
 
+            // Create officer session for 3rd party system integration
+            String sessionId = null;
+            try {
+                String ipAddress = httpRequest.getRemoteAddr();
+                sessionId = officerSessionService.createSession(
+                        request.getUsername(), password, ipAddress);
+            } catch (Exception e) {
+                logger.warn("Failed to create officer session for user {}: {}",
+                        request.getUsername(), e.getMessage());
+            }
+
             // Generate tokens
             String accessToken = tokenProvider.generateToken(
                     userPrincipal.getUsername(),
                     userPrincipal.getUserId(),
                     roles,
-                    permissions
+                    permissions,
+                    sessionId
             );
             String refreshToken = tokenProvider.generateRefreshToken(userPrincipal.getUsername());
 
@@ -118,7 +135,8 @@ public class AuthController {
                     userPrincipal.getUserId(),
                     userPrincipal.getUsername(),
                     roles,
-                    permissions
+                    permissions,
+                    sessionId
             ));
         } catch (AuthenticationException e) {
             throw new UnauthorizedException("Invalid username or password");
@@ -153,7 +171,18 @@ public class AuthController {
             logger.debug("Refreshed token for user {} with {} permissions", username, permissions.size());
         }
 
-        String newAccessToken = tokenProvider.generateToken(username, userId, roles, permissions);
+        // Preserve sessionId from the current access token
+        String sessionId = null;
+        String currentAccessToken = getTokenFromCookie(request, ACCESS_TOKEN_COOKIE);
+        if (currentAccessToken != null) {
+            try {
+                sessionId = tokenProvider.getSessionIdFromToken(currentAccessToken);
+            } catch (Exception e) {
+                logger.debug("Could not extract sessionId from expired access token");
+            }
+        }
+
+        String newAccessToken = tokenProvider.generateToken(username, userId, roles, permissions, sessionId);
         String newRefreshToken = tokenProvider.generateRefreshToken(username);
 
         // Set new httpOnly cookies
@@ -164,12 +193,27 @@ public class AuthController {
                 userId,
                 username,
                 roles,
-                permissions
+                permissions,
+                sessionId
         ));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(HttpServletResponse response) {
+    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request,
+                                                       HttpServletResponse response) {
+        // Close officer session if one exists
+        try {
+            String token = getTokenFromCookie(request, ACCESS_TOKEN_COOKIE);
+            if (token != null && tokenProvider.validateToken(token)) {
+                String sessionId = tokenProvider.getSessionIdFromToken(token);
+                if (sessionId != null) {
+                    officerSessionService.closeSession(sessionId);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to close officer session during logout: {}", e.getMessage());
+        }
+
         // Clear cookies by setting maxAge to 0
         clearTokenCookie(response, ACCESS_TOKEN_COOKIE);
         clearTokenCookie(response, REFRESH_TOKEN_COOKIE);

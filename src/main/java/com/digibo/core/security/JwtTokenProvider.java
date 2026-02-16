@@ -46,27 +46,39 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(String username, String userId, Collection<String> roles) {
-        return generateToken(username, userId, roles, Collections.emptySet());
+        return generateToken(username, userId, roles, Collections.emptySet(), null);
+    }
+
+    public String generateToken(String username, String userId, Collection<String> roles, Set<String> permissions) {
+        return generateToken(username, userId, roles, permissions, null);
     }
 
     /**
-     * Generate JWT token with user permissions included.
+     * Generate JWT token with user permissions and session ID included.
      *
      * @param username The username
      * @param userId The user ID
      * @param roles User roles (e.g., ROLE_ADMIN, ROLE_USER)
      * @param permissions Set of permissions in format "PACKAGE.PROCEDURE"
+     * @param sessionId Officer session ID (may be null)
      * @return JWT token string
      */
-    public String generateToken(String username, String userId, Collection<String> roles, Set<String> permissions) {
+    public String generateToken(String username, String userId, Collection<String> roles,
+                                Set<String> permissions, String sessionId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(username)
                 .claim("userId", userId)
                 .claim("roles", roles)
-                .claim("permissions", permissions)
+                .claim("permissions", permissions);
+
+        if (sessionId != null) {
+            builder.claim("sessionId", sessionId);
+        }
+
+        return builder
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(secretKey)
@@ -116,6 +128,11 @@ public class JwtTokenProvider {
             return Collections.emptySet();
         }
         return new HashSet<>(permissionsList);
+    }
+
+    public String getSessionIdFromToken(String token) {
+        Claims claims = parseToken(token);
+        return claims.get("sessionId", String.class);
     }
 
     /**
