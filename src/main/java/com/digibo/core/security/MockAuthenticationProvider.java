@@ -29,11 +29,12 @@ public class MockAuthenticationProvider implements AuthenticationProvider {
             "user1", new MockUser(
                     "mock-001",
                     "password1",
-                    List.of("RBOFFORDERS", "RBOPAYMENT", "RBOPAYMENTVIEW", "ADMIN"),
+                    List.of("RBOFFORDERS", "RBOPAYMENT", "RBOPAYMENTVIEW", "RBOFFMESSAGES", "ADMIN"),
                     Set.of(
                             "BO_CUSTOMER.FIND", "BO_CUSTOMER.CREATE", "BO_CUSTOMER.UPDATE",
                             "BO_PAYMENT.FIND", "BO_PAYMENT.CREATE", "BO_PAYMENT.UPDATE",
-                            "BO_ORDERS.FIND", "BO_ORDERS.CREATE", "BO_ORDERS.UPDATE"
+                            "BO_ORDERS.FIND", "BO_ORDERS.CREATE", "BO_ORDERS.UPDATE",
+                            "BO_MESSAGES.FIND", "BO_MESSAGES.CREATE", "BO_MESSAGES.UPDATE"
                     )
             ),
             "user2", new MockUser(
